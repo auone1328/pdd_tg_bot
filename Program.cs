@@ -87,8 +87,6 @@ namespace TelegramPDDBot
 
         static async void StartExam(ITelegramBotClient client, Update update) 
         {
-            
-
             if (questionCount == 0) 
             {
                 await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);

@@ -9,16 +9,23 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Diagnostics;
 using System.ComponentModel;
+using Newtonsoft.Json.Converters;
 
 namespace TelegramPDDBot
 {
     internal class Program
     {
+        //нужно сделать json файл с этими атрибутами
         static int questionLimit = 20;
         static int questionCount = 0;
         static int rightCount = 0;
         static int mistakesCount = 0;
-        static bool isExtended = false; //показывает, были ли добавлены вопросы
+        static bool isExtended = false; //показывает, были ли добавлены вопросы     
+
+        static bool isInformed = false;
+        static bool isConverted = false;
+        static int ticket = 0;
+        static bool isTicketGiven = false;
 
         static Host bot = new Host("6997948675:AAFnP583_6yGO3CtRnWbYWawE5vw_NQvOzs"); // инициализация бота
         static Random rnd = new Random();
@@ -30,7 +37,7 @@ namespace TelegramPDDBot
             Console.ReadLine();
         }
 
-        static async Task CheckAnswer(ITelegramBotClient client, Update update) 
+        static async Task CheckAnswer(ITelegramBotClient client, Update update)
         {
             switch (update.Type) //обработка кнопок
             {
@@ -54,7 +61,7 @@ namespace TelegramPDDBot
             }
         }
 
-        static JToken ChooseQuestion() 
+        static JToken ChooseQuestion()
         {
             string ticketPath = $@"../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
             string ticket = System.IO.File.ReadAllText(ticketPath);
@@ -63,16 +70,16 @@ namespace TelegramPDDBot
             return jsonArray[rnd.Next(0, 20)];
         }
 
-        static Stream GetImagePath(JToken question) 
+        static Stream GetImagePath(JToken question)
         {
             string imagePath = question["image"].ToString();
             imagePath = imagePath.Substring(1);
             imagePath = $@"../../../pddQuestions/{imagePath}";
 
-            return System.IO.File.OpenRead(imagePath); 
+            return System.IO.File.OpenRead(imagePath);
         }
 
-        static string ParseAnswers(JArray answers) 
+        static string ParseAnswers(JArray answers)
         {
             string allAnswers = "";
             int j = 1;
@@ -85,9 +92,9 @@ namespace TelegramPDDBot
             return allAnswers;
         }
 
-        static async void StartExam(ITelegramBotClient client, Update update) 
+        static async void StartExam(ITelegramBotClient client, Update update)
         {
-            if (questionCount == 0) 
+            if (questionCount == 0)
             {
                 await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
             }
@@ -98,7 +105,7 @@ namespace TelegramPDDBot
             else
             {
                 await Console.Out.WriteLineAsync($"{questionLimit}");
-          
+
                 // обработка кнопок
                 await CheckAnswer(client, update);
 
@@ -113,7 +120,7 @@ namespace TelegramPDDBot
                 }
 
                 if (questionCount != questionLimit)
-                {                  
+                {
                     //парсинг случайный выбор вопросов из json-формата 
                     JToken question = ChooseQuestion();
 
@@ -127,9 +134,9 @@ namespace TelegramPDDBot
                     //вывод вопросов
                     await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
                         caption: $"{question["question"]}\n\n{allAnswers}", replyMarkup: GetQuestionButtons(answers));
-                                        
+
                     questionCount++;
-                                
+
                 }
                 else
                 {
@@ -141,8 +148,44 @@ namespace TelegramPDDBot
                     isExtended = false;
                     rightCount = 0;
                     mistakesCount = 0;
-                }               
-            }                 
+                }
+            }
+        }
+
+        static async void StartTickets(ITelegramBotClient client, Update update) 
+        {
+            if (!isInformed)
+            {
+                await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, "Введите номер билета (1 - 40)");
+                isInformed = true;
+            }
+            if (!isTicketGiven)
+            {
+                if (update.Message?.Text != null)
+                {
+                    if (!isConverted)
+                    {
+                        isConverted = int.TryParse(update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Text : update.Message.Text, out ticket);
+                    }
+                    if (isConverted && ticket > 0 && ticket < 41)
+                    {
+                        isTicketGiven = true;
+                    }
+                    else
+                    {
+                        await client.SendTextMessageAsync(update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id, "Введён неправильный формат номера билета. Попробуйте ввести номер билета ещё раз (1 - 40)");
+                        isConverted = false;
+                    }
+                }
+            }
+            if (isTicketGiven)
+            {
+                //здесь должен быть основной код
+                Console.WriteLine($"{ticket}");
+            }
+            
+            
+
         }
 
         private static async void OnMessage(ITelegramBotClient client, Update update) //обработчик события
@@ -168,6 +211,7 @@ namespace TelegramPDDBot
                             break;
                         case "Tickets":
                             await Console.Out.WriteLineAsync("Режим: билеты");
+                            bot.OnStartTickets += StartTickets;
                             break;
                         case "Topics":
                             await Console.Out.WriteLineAsync("Режим: вопросы по темам");

@@ -56,7 +56,7 @@ namespace TelegramPDDBot
 
         static JToken ChooseQuestion() 
         {
-            string ticketPath = $@"../../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
+            string ticketPath = $@"../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
             string ticket = System.IO.File.ReadAllText(ticketPath);
             JArray jsonArray = JArray.Parse(ticket);
 
@@ -67,12 +67,12 @@ namespace TelegramPDDBot
         {
             string imagePath = question["image"].ToString();
             imagePath = imagePath.Substring(1);
-            imagePath = $@"../../../../pddQuestions/{imagePath}";
+            imagePath = $@"../../../pddQuestions/{imagePath}";
 
             return System.IO.File.OpenRead(imagePath); 
         }
 
-        static string ParseAnswers(JToken question, JArray answers) 
+        static string ParseAnswers(JArray answers) 
         {
             string allAnswers = "";
             int j = 1;
@@ -124,7 +124,7 @@ namespace TelegramPDDBot
 
                     //парсинг ответов 
                     JArray answers = JArray.Parse(question["answers"].ToString());
-                    string allAnswers = ParseAnswers(question, answers);
+                    string allAnswers = ParseAnswers(answers);
 
                     //вывод вопросов
                     await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
@@ -153,7 +153,7 @@ namespace TelegramPDDBot
             var message = update.Message;
             if (message?.Text == "/start") //вывод меню
             {
-                await using Stream logo = System.IO.File.OpenRead(@"../../../../pddQuestions/images/logo.jpg");
+                await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
                 await client.SendPhotoAsync(message.Chat.Id, photo: InputFile.FromStream(logo, "logo.jpg"), caption: $"{message.Chat.FirstName}, Добро пожаловать в бота для изучения ПДД." +
                     "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
                     replyMarkup: GetMenuButtons());

@@ -5,13 +5,21 @@ using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
+using System.Threading;
+using System.Threading.Channels;
+using System.Diagnostics;
+using System.ComponentModel;
 
 namespace TelegramPDDBot
 {
     internal class Program
     {
+        static int questionLimit = 20;
         static int questionCount = 0;
         static int rightCount = 0;
+        static int mistakesCount = 0;
+        static bool isExtended = false; //показывает, были ли добавлены вопросы
+
         static Host bot = new Host("6997948675:AAFnP583_6yGO3CtRnWbYWawE5vw_NQvOzs"); // инициализация бота
         static Random rnd = new Random();
         static string category = "A_B";
@@ -22,61 +30,121 @@ namespace TelegramPDDBot
             Console.ReadLine();
         }
 
+        static async Task CheckAnswer(ITelegramBotClient client, Update update) 
+        {
+            switch (update.Type) //обработка кнопок
+            {
+                case UpdateType.CallbackQuery:
+                    switch (update.CallbackQuery?.Data)
+                    {
+                        case "True":
+                            await Console.Out.WriteLineAsync($"{questionCount}) Ответ правильный");
+                            rightCount++;
+                            await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+                            break;
+                        case "False":
+                            await Console.Out.WriteLineAsync($"{questionCount}) Ответ неправильный");
+                            mistakesCount++;
+                            await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+                            break;
+                        default:
+                            break;
+                    }
+                    break;
+            }
+        }
+
+        static JToken ChooseQuestion() 
+        {
+            string ticketPath = $@"../../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
+            string ticket = System.IO.File.ReadAllText(ticketPath);
+            JArray jsonArray = JArray.Parse(ticket);
+
+            return jsonArray[rnd.Next(0, 20)];
+        }
+
+        static Stream GetImagePath(JToken question) 
+        {
+            string imagePath = question["image"].ToString();
+            imagePath = imagePath.Substring(1);
+            imagePath = $@"../../../../pddQuestions/{imagePath}";
+
+            return System.IO.File.OpenRead(imagePath); 
+        }
+
+        static string ParseAnswers(JToken question, JArray answers) 
+        {
+            string allAnswers = "";
+            int j = 1;
+            foreach (var answer in answers)
+            {
+                allAnswers += $"{j}) {answer["answer_text"]}\n";
+                j++;
+            }
+
+            return allAnswers;
+        }
+
         static async void StartExam(ITelegramBotClient client, Update update) 
         {
-            if (questionCount != 20)
-            {
-                //парсинг случайный выбор вопросов из json-формата 
-                string ticketPath = $@"../../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
-                string ticket = System.IO.File.ReadAllText(ticketPath);
-                JArray jsonArray = JArray.Parse(ticket);
-                JToken question = jsonArray[rnd.Next(0, 20)];
-
-                // получение пути к изображению
-                string imagePath = question["image"].ToString();
-                imagePath = imagePath.Substring(1);
-                imagePath = $@"../../../../pddQuestions/{imagePath}";
-                await using Stream image = System.IO.File.OpenRead(imagePath);
-
-                //парсинг ответов 
-                JArray answers = JArray.Parse(question["answers"].ToString());
-                string allAnswers = "";
-                int j = 1;
-                foreach (var answer in answers)
-                {
-                    allAnswers += $"{j}) {answer["answer_text"]}\n";
-                    j++;
-                }
-
-                //вывод вопросов
-                await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
-                    caption: $"{question["question"]}\n\n{allAnswers}", replyMarkup: GetQuestionButtons(answers));
-
-                switch (update.Type) //обработка кнопок
-                {
-                    case UpdateType.CallbackQuery:
-                        switch (update.CallbackQuery?.Data)
-                        {
-                            case "True":
-                                await Console.Out.WriteLineAsync("Ответ правильный");
-                                rightCount++;
-                                break;
-                            case "False":
-                                await Console.Out.WriteLineAsync("Ответ неправильный");
-                                break;
-                        }
-                        break;
-                }
-                questionCount++;
-            }
-            else  
-            {
-                bot.OnStartExam -= StartExam;
-                await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, text: $"Экзамен окончен. Количество правильных ответов = {rightCount}/20.");
-                questionCount = 0;
-                rightCount = 0;
-            }
             
+
+            if (questionCount == 0) 
+            {
+                await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+            }
+            if (update.Message?.Text != null)
+            {
+                await client.SendTextMessageAsync(update.Message.Chat.Id, "В данном режиме принимаются ответы только на кнопки!");
+            }
+            else
+            {
+                await Console.Out.WriteLineAsync($"{questionLimit}");
+          
+                // обработка кнопок
+                await CheckAnswer(client, update);
+
+                if (questionCount == questionLimit)
+                {
+                    if (mistakesCount > 0 && mistakesCount <= 2 && !isExtended)
+                    {
+                        questionLimit += 5 * mistakesCount;
+                        isExtended = true;
+                        await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, $"Ошибок было допущено: {mistakesCount}, к экзамену добавлено {5 * mistakesCount} вопросов.");
+                    }
+                }
+
+                if (questionCount != questionLimit)
+                {                  
+                    //парсинг случайный выбор вопросов из json-формата 
+                    JToken question = ChooseQuestion();
+
+                    // получение пути к изображению
+                    await using Stream image = GetImagePath(question);
+
+                    //парсинг ответов 
+                    JArray answers = JArray.Parse(question["answers"].ToString());
+                    string allAnswers = ParseAnswers(question, answers);
+
+                    //вывод вопросов
+                    await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
+                        caption: $"{question["question"]}\n\n{allAnswers}", replyMarkup: GetQuestionButtons(answers));
+                                        
+                    questionCount++;
+                                
+                }
+                else
+                {
+                    bot.OnStartExam -= StartExam;
+                    string isPassed = mistakesCount <= 2 ? "сдан" : "не сдан";
+                    await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, text: $"Экзамен {isPassed}! Количество правильных ответов = {rightCount}/{questionLimit}.");
+                    questionCount = 0;
+                    questionLimit = 20;
+                    isExtended = false;
+                    rightCount = 0;
+                    mistakesCount = 0;
+                }               
+            }                 
         }
 
         private static async void OnMessage(ITelegramBotClient client, Update update) //обработчик события

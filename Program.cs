@@ -92,6 +92,19 @@ namespace TelegramPDDBot
             return allAnswers;
         }
 
+        static async Task ShowMenu(ITelegramBotClient client, Update update) 
+        {
+            string checkTypeForName = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message?.Chat.FirstName : update.Message?.Chat.FirstName;
+            long checkTypeForChat = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
+            await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
+            await client.SendPhotoAsync(checkTypeForChat,
+                photo: InputFile.FromStream(logo, "logo.jpg"),
+                caption: $"{checkTypeForName}, Добро пожаловать в бота для изучения ПДД." +
+                "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
+                replyMarkup: GetMenuButtons());
+        }
+
+
         static async void StartExam(ITelegramBotClient client, Update update)
         {
             if (questionCount == 0)
@@ -148,6 +161,7 @@ namespace TelegramPDDBot
                     isExtended = false;
                     rightCount = 0;
                     mistakesCount = 0;
+                    await ShowMenu(client, update);
                 }
             }
         }
@@ -184,20 +198,19 @@ namespace TelegramPDDBot
                 Console.WriteLine($"{ticket}");
             }
             
-            
-
+           
         }
 
         private static async void OnMessage(ITelegramBotClient client, Update update) //обработчик события
         {
-               
             var message = update.Message;
             if (message?.Text == "/start") //вывод меню
             {
-                await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
-                await client.SendPhotoAsync(message.Chat.Id, photo: InputFile.FromStream(logo, "logo.jpg"), caption: $"{message.Chat.FirstName}, Добро пожаловать в бота для изучения ПДД." +
-                    "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
-                    replyMarkup: GetMenuButtons());
+                //await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
+                //await client.SendPhotoAsync(message.Chat.Id, photo: InputFile.FromStream(logo, "logo.jpg"), caption: $"{message.Chat.FirstName}, Добро пожаловать в бота для изучения ПДД." +
+                //    "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
+                //    replyMarkup: GetMenuButtons());
+                await ShowMenu(client, update);
             }
 
             switch (update.Type) //обработка кнопок

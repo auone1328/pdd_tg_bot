@@ -13,7 +13,7 @@ namespace TelegramPDDBot
         public Action<ITelegramBotClient, Update>? OnMessage;
         public Action<ITelegramBotClient, Update>? OnStartExam;
         public Action<ITelegramBotClient, Update>? OnStartTickets;
-
+        public Action<ITelegramBotClient, Update>? OnChangeCategory;
         TelegramBotClient bot;
 
         public Host(string token) 
@@ -39,6 +39,7 @@ namespace TelegramPDDBot
             OnMessage?.Invoke(client, update);
             OnStartExam?.Invoke(client, update); 
             OnStartTickets?.Invoke(client, update);
+            OnChangeCategory?.Invoke(client, update);
             await Task.CompletedTask;
         }
     }

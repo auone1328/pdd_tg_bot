@@ -5,15 +5,17 @@ using System.Text;
 using System.Threading.Tasks;
 using Telegram.Bot;
 using Telegram.Bot.Types;
+using Telegram.Bot.Types.Enums;
 
 namespace TelegramPDDBot
 {
     internal class Host
     {
         public Action<ITelegramBotClient, Update>? OnMessage;
-        public Action<ITelegramBotClient, Update>? OnStartExam;
+        //public Action<ITelegramBotClient, Update>? OnStartExam;
         public Action<ITelegramBotClient, Update>? OnStartTickets;
-        public Action<ITelegramBotClient, Update>? OnChangeCategory;
+        public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartExam = new Dictionary<long, Action<ITelegramBotClient, Update>?>(); 
+
         TelegramBotClient bot;
 
         public Host(string token) 
@@ -29,7 +31,7 @@ namespace TelegramPDDBot
 
         private async Task ErrorHandler(ITelegramBotClient client, Exception exception, CancellationToken token)
         {
-            Console.WriteLine($"Ошибка: {exception.Message}");
+            Console.WriteLine($"Ошибка: {exception}");
             await Task.CompletedTask;
         }
 
@@ -37,7 +39,10 @@ namespace TelegramPDDBot
         {
             Console.WriteLine($"Пришло сообщение: {update.Message?.Text ?? "<не текст>"}");
             OnMessage?.Invoke(client, update);
-            OnStartExam?.Invoke(client, update); 
+            if (update.Type == UpdateType.CallbackQuery && OnStartExam.ContainsKey(update.CallbackQuery.Message.Chat.Id))
+            {
+                OnStartExam[update.CallbackQuery.Message.Chat.Id]?.Invoke(client, update);
+            }
             OnStartTickets?.Invoke(client, update);
             OnChangeCategory?.Invoke(client, update);
             await Task.CompletedTask;

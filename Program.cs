@@ -17,7 +17,6 @@ namespace TelegramPDDBot
     {
         //нужно сделать json файл с этими атрибутами
         static int questionStartCount = 20;
-
         static Dictionary<long, int> questionLimit = new Dictionary<long, int>();
         static int questionCount = 0;
         static int rightCount = 0;
@@ -91,7 +90,7 @@ namespace TelegramPDDBot
 
             return System.IO.File.OpenRead(imagePath);
         }
-
+           
         static string ParseAnswers(JArray answers)
         {
             string allAnswers = "";
@@ -105,16 +104,65 @@ namespace TelegramPDDBot
             return allAnswers;
         }
 
-        static async Task ShowMenu(ITelegramBotClient client, Update update) 
+        static async Task ShowMenu(ITelegramBotClient client, Update update)
         {
+            string textForMenu;
+            if (category == "A_B")
+                textForMenu = "(легковые автомобили и мотоциклы)";
+            else
+                textForMenu = "(грузовые автомобили и автобусы)";
             string checkTypeForName = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message?.Chat.FirstName : update.Message?.Chat.FirstName;
             long checkTypeForChat = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
             await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
             await client.SendPhotoAsync(checkTypeForChat,
                 photo: InputFile.FromStream(logo, "logo.jpg"),
                 caption: $"{checkTypeForName}, Добро пожаловать в бота для изучения ПДД." +
-                "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
+                $"\r\n\r\nСейчас вы находитесь на категории {category} {textForMenu}. Выберите режим работы:",
                 replyMarkup: GetMenuButtons());
+        }
+
+        private static InlineKeyboardMarkup? GetCategoryButtons()
+        {
+            return new InlineKeyboardMarkup
+            (
+                new[]
+                {
+                    new[]
+                    {
+                        InlineKeyboardButton.WithCallbackData(text: "A_B", callbackData: "A_B")
+                    },
+                    new[]
+                    {
+                         InlineKeyboardButton.WithCallbackData(text: "C_D", callbackData: "C_D")
+                    },
+                }
+            );
+        }
+
+        static async void ChangeCategory(ITelegramBotClient client, Update update)
+        {
+            if (update.Message?.Text != null)
+            {
+                await client.SendTextMessageAsync(update.Message.Chat.Id, "В данном режиме принимаются ответы только на кнопки!");
+            }
+            else if (update.CallbackQuery?.Data != null)
+            {
+                string selectedCategory = update.CallbackQuery.Data;
+                if (selectedCategory == "A_B" || selectedCategory == "C_D")
+                {
+                    category = selectedCategory;
+                    await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+                    bot.OnChangeCategory -= ChangeCategory;
+                    await ShowMenu(client, update);
+                }
+                else
+                {
+                    await client.SendTextMessageAsync(
+                        update.CallbackQuery.Message.Chat.Id,
+                        text: "Выберите категорию:",
+                        replyMarkup: GetCategoryButtons());
+                }
+            }
         }
 
 
@@ -211,8 +259,6 @@ namespace TelegramPDDBot
                 //здесь должен быть основной код
                 Console.WriteLine($"{ticket}");
             }
-            
-           
         }
 
         private static async void OnMessage(ITelegramBotClient client, Update update) //обработчик события
@@ -248,6 +294,7 @@ namespace TelegramPDDBot
                             break;
                         case "Category":
                             await Console.Out.WriteLineAsync("Режим: категории");
+                            bot.OnChangeCategory += ChangeCategory;
                             break;
                         case "Help":
                             await Console.Out.WriteLineAsync("Режим: помощь");

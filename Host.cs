@@ -44,6 +44,7 @@ namespace TelegramPDDBot
                 OnStartExam[update.CallbackQuery.Message.Chat.Id]?.Invoke(client, update);
             }
             OnStartTickets?.Invoke(client, update);
+            OnChangeCategory?.Invoke(client, update);
             await Task.CompletedTask;
         }
     }

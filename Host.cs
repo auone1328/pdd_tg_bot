@@ -12,6 +12,7 @@ namespace TelegramPDDBot
     {
         public Action<ITelegramBotClient, Update>? OnMessage;
         public Action<ITelegramBotClient, Update>? OnStartExam;
+        public Action<ITelegramBotClient, Update>? OnStartTickets;
 
         TelegramBotClient bot;
 
@@ -36,7 +37,8 @@ namespace TelegramPDDBot
         {
             Console.WriteLine($"Пришло сообщение: {update.Message?.Text ?? "<не текст>"}");
             OnMessage?.Invoke(client, update);
-            OnStartExam?.Invoke(client, update);
+            OnStartExam?.Invoke(client, update); 
+            OnStartTickets?.Invoke(client, update);
             await Task.CompletedTask;
         }
     }

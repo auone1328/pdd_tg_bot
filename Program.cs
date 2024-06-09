@@ -9,16 +9,26 @@ using System.Threading;
 using System.Threading.Channels;
 using System.Diagnostics;
 using System.ComponentModel;
+using Newtonsoft.Json.Converters;
 
 namespace TelegramPDDBot
 {
     internal class Program
     {
-        static int questionLimit = 20;
+        //нужно сделать json файл с этими атрибутами
+        static int questionStartCount = 20;
+
+        static Dictionary<long, int> questionLimit = new Dictionary<long, int>();
         static int questionCount = 0;
         static int rightCount = 0;
         static int mistakesCount = 0;
-        static bool isExtended = false; //показывает, были ли добавлены вопросы
+        static bool isExtended = false; //показывает, были ли добавлены вопросы     
+        static List<JToken> usedQuestions = new List<JToken>();
+
+        static bool isInformed = false;
+        static bool isConverted = false;
+        static int ticket = 0;
+        static bool isTicketGiven = false;
 
         static Host bot = new Host("6997948675:AAFnP583_6yGO3CtRnWbYWawE5vw_NQvOzs"); // инициализация бота
         static Random rnd = new Random();
@@ -30,7 +40,7 @@ namespace TelegramPDDBot
             Console.ReadLine();
         }
 
-        static async Task CheckAnswer(ITelegramBotClient client, Update update) 
+        static async Task CheckAnswer(ITelegramBotClient client, Update update)
         {
             switch (update.Type) //обработка кнопок
             {
@@ -54,25 +64,35 @@ namespace TelegramPDDBot
             }
         }
 
-        static JToken ChooseQuestion() 
+        static JToken ChooseQuestion()
         {
-            string ticketPath = $@"../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
-            string ticket = System.IO.File.ReadAllText(ticketPath);
-            JArray jsonArray = JArray.Parse(ticket);
-
-            return jsonArray[rnd.Next(0, 20)];
+            bool isUsed = true;
+            JToken? question = default;
+            while (isUsed) 
+            {
+                string ticketPath = $@"../../../pddQuestions/questions/{category}/tickets/Билет {rnd.Next(1, 41)}.json";
+                string ticket = System.IO.File.ReadAllText(ticketPath);
+                JArray jsonArray = JArray.Parse(ticket);
+                question = jsonArray[rnd.Next(0, 20)];
+                if (!usedQuestions.Contains(question)) 
+                {
+                    isUsed = false;
+                }
+            }
+            usedQuestions.Add(question);
+            return question;
         }
 
-        static Stream GetImagePath(JToken question) 
+        static Stream GetImagePath(JToken question)
         {
             string imagePath = question["image"].ToString();
             imagePath = imagePath.Substring(1);
             imagePath = $@"../../../pddQuestions/{imagePath}";
 
-            return System.IO.File.OpenRead(imagePath); 
+            return System.IO.File.OpenRead(imagePath);
         }
 
-        static string ParseAnswers(JArray answers) 
+        static string ParseAnswers(JArray answers)
         {
             string allAnswers = "";
             int j = 1;
@@ -85,10 +105,24 @@ namespace TelegramPDDBot
             return allAnswers;
         }
 
-        static async void StartExam(ITelegramBotClient client, Update update) 
+        static async Task ShowMenu(ITelegramBotClient client, Update update) 
         {
-            if (questionCount == 0) 
+            string checkTypeForName = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message?.Chat.FirstName : update.Message?.Chat.FirstName;
+            long checkTypeForChat = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
+            await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
+            await client.SendPhotoAsync(checkTypeForChat,
+                photo: InputFile.FromStream(logo, "logo.jpg"),
+                caption: $"{checkTypeForName}, Добро пожаловать в бота для изучения ПДД." +
+                "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
+                replyMarkup: GetMenuButtons());
+        }
+
+
+        static async void StartExam(ITelegramBotClient client, Update update)
+        {
+            if (questionCount == 0)
             {
+                questionLimit[update.CallbackQuery.Message.Chat.Id] = questionStartCount;
                 await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
             }
             if (update.Message?.Text != null)
@@ -97,23 +131,23 @@ namespace TelegramPDDBot
             }
             else
             {
-                await Console.Out.WriteLineAsync($"{questionLimit}");
-          
+                await Console.Out.WriteLineAsync($"{usedQuestions.Count}");
+
                 // обработка кнопок
                 await CheckAnswer(client, update);
 
-                if (questionCount == questionLimit)
+                if (questionCount == questionLimit[update.CallbackQuery.Message.Chat.Id])
                 {
                     if (mistakesCount > 0 && mistakesCount <= 2 && !isExtended)
                     {
-                        questionLimit += 5 * mistakesCount;
+                        questionLimit[update.CallbackQuery.Message.Chat.Id] += 5 * mistakesCount;
                         isExtended = true;
-                        await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, $"Ошибок было допущено: {mistakesCount}, к экзамену добавлено {5 * mistakesCount} вопросов.");
+                        await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, $"Ошибок было допущено: {mistakesCount}. К экзамену добавлено {5 * mistakesCount} вопросов.");
                     }
                 }
 
-                if (questionCount != questionLimit)
-                {                  
+                if (questionCount != questionLimit[update.CallbackQuery.Message.Chat.Id])
+                {
                     //парсинг случайный выбор вопросов из json-формата 
                     JToken question = ChooseQuestion();
 
@@ -127,34 +161,70 @@ namespace TelegramPDDBot
                     //вывод вопросов
                     await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
                         caption: $"{question["question"]}\n\n{allAnswers}", replyMarkup: GetQuestionButtons(answers));
-                                        
+
                     questionCount++;
-                                
+
                 }
                 else
                 {
                     bot.OnStartExam -= StartExam;
                     string isPassed = mistakesCount <= 2 ? "сдан" : "не сдан";
-                    await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, text: $"Экзамен {isPassed}! Количество правильных ответов = {rightCount}/{questionLimit}.");
+                    await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, text: $"Экзамен {isPassed}! Количество правильных ответов = {rightCount}/{questionLimit[update.CallbackQuery.Message.Chat.Id]}.");
                     questionCount = 0;
-                    questionLimit = 20;
+                    questionLimit.Remove(update.CallbackQuery.Message.Chat.Id);
                     isExtended = false;
                     rightCount = 0;
                     mistakesCount = 0;
-                }               
-            }                 
+                    await ShowMenu(client, update);
+                }
+            }
+        }
+
+        static async void StartTickets(ITelegramBotClient client, Update update) 
+        {
+            if (!isInformed)
+            {
+                await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, "Введите номер билета (1 - 40)");
+                isInformed = true;
+            }
+            if (!isTicketGiven)
+            {
+                if (update.Message?.Text != null)
+                {
+                    if (!isConverted)
+                    {
+                        isConverted = int.TryParse(update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Text : update.Message.Text, out ticket);
+                    }
+                    if (isConverted && ticket > 0 && ticket < 41)
+                    {
+                        isTicketGiven = true;
+                    }
+                    else
+                    {
+                        await client.SendTextMessageAsync(update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id, "Введён неправильный формат номера билета. Попробуйте ввести номер билета ещё раз (1 - 40)");
+                        isConverted = false;
+                    }
+                }
+            }
+            if (isTicketGiven)
+            {
+                //здесь должен быть основной код
+                Console.WriteLine($"{ticket}");
+            }
+            
+           
         }
 
         private static async void OnMessage(ITelegramBotClient client, Update update) //обработчик события
         {
-               
             var message = update.Message;
             if (message?.Text == "/start") //вывод меню
             {
-                await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
-                await client.SendPhotoAsync(message.Chat.Id, photo: InputFile.FromStream(logo, "logo.jpg"), caption: $"{message.Chat.FirstName}, Добро пожаловать в бота для изучения ПДД." +
-                    "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
-                    replyMarkup: GetMenuButtons());
+                //await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
+                //await client.SendPhotoAsync(message.Chat.Id, photo: InputFile.FromStream(logo, "logo.jpg"), caption: $"{message.Chat.FirstName}, Добро пожаловать в бота для изучения ПДД." +
+                //    "\r\n\r\nСейчас вы находитесь на категории AВ (легковые автомобили и мотоциклы). Выберите режим работы:",
+                //    replyMarkup: GetMenuButtons());
+                await ShowMenu(client, update);
             }
 
             switch (update.Type) //обработка кнопок
@@ -168,6 +238,7 @@ namespace TelegramPDDBot
                             break;
                         case "Tickets":
                             await Console.Out.WriteLineAsync("Режим: билеты");
+                            bot.OnStartTickets += StartTickets;
                             break;
                         case "Topics":
                             await Console.Out.WriteLineAsync("Режим: вопросы по темам");

@@ -13,8 +13,10 @@ namespace TelegramPDDBot
     {
         public Action<ITelegramBotClient, Update>? OnMessage;
         //public Action<ITelegramBotClient, Update>? OnStartExam;
-        public Action<ITelegramBotClient, Update>? OnStartTickets;
-        public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartExam = new Dictionary<long, Action<ITelegramBotClient, Update>?>(); 
+        //public Action<ITelegramBotClient, Update>? OnStartTickets;
+        public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartExam = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
+        public Dictionary<long, Action<ITelegramBotClient, Update>?> OnChangeCategory = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
+        public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartTickets = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
 
         TelegramBotClient bot;
 
@@ -35,16 +37,28 @@ namespace TelegramPDDBot
             await Task.CompletedTask;
         }
 
+        delegate void Mode(ITelegramBotClient client, Update update);
+
+        static void StartMode(ITelegramBotClient client, Update update, Dictionary<long, Action<ITelegramBotClient, Update>?> action, Mode mode) 
+        {
+            long chatId = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
+            if (action.ContainsKey(chatId))
+            {
+                mode(client, update);
+            }
+        }
+
         private async Task UpdateHandler(ITelegramBotClient client, Update update, CancellationToken token)
         {
             Console.WriteLine($"Пришло сообщение: {update.Message?.Text ?? "<не текст>"}");
+            long chatId = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
+
             OnMessage?.Invoke(client, update);
-            if (update.Type == UpdateType.CallbackQuery && OnStartExam.ContainsKey(update.CallbackQuery.Message.Chat.Id))
-            {
-                OnStartExam[update.CallbackQuery.Message.Chat.Id]?.Invoke(client, update);
-            }
-            OnStartTickets?.Invoke(client, update);
-            OnChangeCategory?.Invoke(client, update);
+            StartMode(client, update, OnStartExam, (client, update) => OnStartExam[chatId]?.Invoke(client, update));
+            StartMode(client, update, OnChangeCategory, (client, update) => OnChangeCategory[chatId]?.Invoke(client, update));
+            StartMode(client, update, OnStartTickets, (client, update) => OnStartTickets[chatId]?.Invoke(client, update));
+
+            
             await Task.CompletedTask;
         }
     }

@@ -91,8 +91,14 @@ namespace TelegramPDDBot
             {
                 mistakesArray = new JArray();
             }
-            mistakesArray.Add(mistakeToken);
-            System.IO.File.WriteAllText($@"../../../pddQuestions/mistakes/{update.CallbackQuery.Message.Chat.Id}.json", JsonConvert.SerializeObject(mistakesArray));
+
+            int isContains = mistakesArray.Where(item => item.ToString() == mistakeToken.ToString()).Count();
+
+            if (isContains == 0) 
+            {
+                mistakesArray.Add(mistakeToken);
+                System.IO.File.WriteAllText($@"../../../pddQuestions/mistakes/{update.CallbackQuery.Message.Chat.Id}.json", JsonConvert.SerializeObject(mistakesArray));
+            }            
         }
 
 
@@ -114,6 +120,7 @@ namespace TelegramPDDBot
                             await Console.Out.WriteLineAsync($"{questionCount[update.CallbackQuery.Message.Chat.Id]}) Ответ правильный");
                             rightCount[update.CallbackQuery.Message.Chat.Id]++;
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+
                             break;
                         case "False":
                             await Console.Out.WriteLineAsync($"{questionCount[update.CallbackQuery.Message.Chat.Id]}) Ответ неправильный");
@@ -138,6 +145,7 @@ namespace TelegramPDDBot
 
         static async Task CheckAnswerQuestion(ITelegramBotClient client, Update update, JToken question, Stream image, JArray answers, string allAnswers, bool isMistakes)
         {
+
             switch (update.Type) //обработка кнопок
             {                
                 case UpdateType.CallbackQuery:
@@ -148,6 +156,7 @@ namespace TelegramPDDBot
                             rightCount[update.CallbackQuery.Message.Chat.Id]++;
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
                             await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, $"{questionCount[update.CallbackQuery.Message.Chat.Id]}) ✅Ответ верный.");
+    
                             if (isMistakes)
                             {
                                 EditMistakes(update, question);
@@ -161,19 +170,21 @@ namespace TelegramPDDBot
                             string questionText = isMistakes ? "GivenQuestion" : "question";
                             string correctAnswer = isMistakes ? "CorrectAnswer" : "correct_answer";
                             string answerTip = isMistakes ? "AnswerTip" : "answer_tip";
+                          
 
                             try
                             {
                                 await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
-                                caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question[correctAnswer]}\n{question[answerTip]}");
-                            }
+                                caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n/{question[correctAnswer]}\n{question[answerTip]}");
+                            }   
                             catch 
                             {
-                                await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
+                                await using Stream photoToInsert = isMistakes ? GetImagePathForMistakes(question) : GetImagePath(question);
+                                await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(photoToInsert, "question.jpg"),
                                 caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question[correctAnswer]}");
                             }
 
-                            if (!isMistakes)
+                    if (!isMistakes)
                             {
                                 AddQuestionToMistakes(update, question, answers);
                             }
@@ -520,7 +531,7 @@ namespace TelegramPDDBot
                         }
                         else
                         {
-                            string isPassed = mistakesCount[chatId] <= 2 ? "пройденным✅" : "не пройденным❌";
+                            string isPassed = mistakesCount[chatId] <= 2 ? "пройденным✅" : "непройденным❌";
                             await client.SendTextMessageAsync(chatId, text: $"Билет считается {isPassed}. Количество правильных ответов = {rightCount[chatId]}/{questionLimit[chatId]}.");
                             await EndMode(client, update, bot.OnStartTickets);
                         }                       

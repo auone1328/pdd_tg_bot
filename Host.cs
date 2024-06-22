@@ -17,6 +17,7 @@ namespace TelegramPDDBot
         public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartExam = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
         public Dictionary<long, Action<ITelegramBotClient, Update>?> OnChangeCategory = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
         public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartTickets = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
+        public Dictionary<long, Action<ITelegramBotClient, Update>?> OnStartMistakes = new Dictionary<long, Action<ITelegramBotClient, Update>?>();
 
         TelegramBotClient bot;
 
@@ -57,8 +58,8 @@ namespace TelegramPDDBot
             StartMode(client, update, OnStartExam, (client, update) => OnStartExam[chatId]?.Invoke(client, update));
             StartMode(client, update, OnChangeCategory, (client, update) => OnChangeCategory[chatId]?.Invoke(client, update));
             StartMode(client, update, OnStartTickets, (client, update) => OnStartTickets[chatId]?.Invoke(client, update));
+            StartMode(client, update, OnStartMistakes, (client, update) => OnStartMistakes[chatId]?.Invoke(client, update));
 
-            
             await Task.CompletedTask;
         }
     }

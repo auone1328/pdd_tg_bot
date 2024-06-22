@@ -5,18 +5,14 @@ using Telegram.Bot.Types.Enums;
 using Telegram.Bot.Types.ReplyMarkups;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
-using System.Threading;
-using System.Threading.Channels;
-using System.Diagnostics;
-using System.ComponentModel;
-using Newtonsoft.Json.Converters;
-using System.Globalization;
-using static System.Net.Mime.MediaTypeNames;
+
 
 namespace TelegramPDDBot
 {
     internal class Program
     {
+        static Dictionary<long, bool> isInMode = new Dictionary<long, bool>();
+
         //for exam
         static int questionStartCount = 20;
         static Dictionary<long, int> questionLimit = new Dictionary<long, int>();
@@ -56,10 +52,64 @@ namespace TelegramPDDBot
             rightCount.Remove(chatId);
             mistakesCount.Remove(chatId);
             usedQuestions.Remove(chatId);
+            isInMode.Remove(chatId);
+            currentQuestion.Remove(chatId);
             await ShowMenu(client, update);
         }
 
-        static async Task CheckAnswerExam(ITelegramBotClient client, Update update)
+        static JArray ReadMistakesFile(Update update) 
+        {       
+            string mistakesPath = $@"../../../pddQuestions/mistakes/{update.CallbackQuery.Message.Chat.Id}.json";
+            string mistakes = System.IO.File.ReadAllText(mistakesPath);
+            JArray? mistakesArray = null;
+
+            try 
+            {
+                mistakesArray = JArray.Parse(mistakes);
+            }
+            catch 
+            {
+                mistakesArray = new JArray();
+            }
+
+            return mistakesArray;
+        }
+
+        static void AddQuestionToMistakes(Update update, JToken question, JArray answers) 
+        {
+            Question mistake = new Question(question["id"].ToString(), question["image"].ToString(),
+                question["question"].ToString(), answers, question["answer_tip"].ToString(),
+                question["correct_answer"].ToString());
+
+            JToken mistakeToken = JToken.FromObject(mistake);
+            JArray mistakesArray;
+            try
+            {
+                mistakesArray = ReadMistakesFile(update);
+            }
+            catch 
+            {
+                mistakesArray = new JArray();
+            }
+
+            int isContains = mistakesArray.Where(item => item.ToString() == mistakeToken.ToString()).Count();
+
+            if (isContains == 0) 
+            {
+                mistakesArray.Add(mistakeToken);
+                System.IO.File.WriteAllText($@"../../../pddQuestions/mistakes/{update.CallbackQuery.Message.Chat.Id}.json", JsonConvert.SerializeObject(mistakesArray));
+            }            
+        }
+
+
+        static void EditMistakes(Update update, JToken question) 
+        {
+            JArray jsonArray = ReadMistakesFile(update);
+            jsonArray.Where(item => item["QuestionId"].ToString() == question["QuestionId"].ToString()).ToList().ForEach(item => item.Remove());
+            System.IO.File.WriteAllText($@"../../../pddQuestions/mistakes/{update.CallbackQuery.Message.Chat.Id}.json", JsonConvert.SerializeObject(jsonArray));
+        }
+
+        static async Task CheckAnswerExam(ITelegramBotClient client, Update update, JToken question, JArray answers)
         {
             switch (update.Type) //обработка кнопок
             {
@@ -70,11 +120,14 @@ namespace TelegramPDDBot
                             await Console.Out.WriteLineAsync($"{questionCount[update.CallbackQuery.Message.Chat.Id]}) Ответ правильный");
                             rightCount[update.CallbackQuery.Message.Chat.Id]++;
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+
                             break;
                         case "False":
                             await Console.Out.WriteLineAsync($"{questionCount[update.CallbackQuery.Message.Chat.Id]}) Ответ неправильный");
                             mistakesCount[update.CallbackQuery.Message.Chat.Id]++;
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+
+                            AddQuestionToMistakes(update, question, answers);
                             break;
                         case "Back":
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
@@ -90,8 +143,9 @@ namespace TelegramPDDBot
 
 
 
-        static async Task CheckAnswerTickets(ITelegramBotClient client, Update update, JToken question, Stream image, string allAnswers)
+        static async Task CheckAnswerQuestion(ITelegramBotClient client, Update update, JToken question, Stream image, JArray answers, string allAnswers, bool isMistakes)
         {
+
             switch (update.Type) //обработка кнопок
             {                
                 case UpdateType.CallbackQuery:
@@ -102,20 +156,37 @@ namespace TelegramPDDBot
                             rightCount[update.CallbackQuery.Message.Chat.Id]++;
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
                             await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, $"{questionCount[update.CallbackQuery.Message.Chat.Id]}) ✅Ответ верный.");
+    
+                            if (isMistakes)
+                            {
+                                EditMistakes(update, question);
+                            }
                             break;
                         case "False":
                             await Console.Out.WriteLineAsync($"{questionCount[update.CallbackQuery.Message.Chat.Id]}) Ответ неправильный");
                             mistakesCount[update.CallbackQuery.Message.Chat.Id]++;                           
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
+
+                            string questionText = isMistakes ? "GivenQuestion" : "question";
+                            string correctAnswer = isMistakes ? "CorrectAnswer" : "correct_answer";
+                            string answerTip = isMistakes ? "AnswerTip" : "answer_tip";
+                          
+
                             try
                             {
                                 await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
-                                caption: $"{question["question"]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question["correct_answer"]}\n{question["answer_tip"]}");
-                            }
+                                caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n/{question[correctAnswer]}\n{question[answerTip]}");
+                            }   
                             catch 
                             {
-                                await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
-                                caption: $"{question["question"]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question["correct_answer"]}");
+                                await using Stream photoToInsert = isMistakes ? GetImagePathForMistakes(question) : GetImagePath(question);
+                                await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(photoToInsert, "question.jpg"),
+                                caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question[correctAnswer]}");
+                            }
+
+                    if (!isMistakes)
+                            {
+                                AddQuestionToMistakes(update, question, answers);
                             }
                             break;
                         case "Back":
@@ -174,6 +245,48 @@ namespace TelegramPDDBot
                 }               
             }
 
+            return question;
+        }
+
+        static int CountMistakeQuestions(Update update)
+        {
+            try 
+            {
+                string mistakesPath = $@"../../../pddQuestions/mistakes/{update.CallbackQuery.Message.Chat.Id}.json";
+                string mistakes = System.IO.File.ReadAllText(mistakesPath);
+                JArray jsonArray = JArray.Parse(mistakes);
+                int count = jsonArray.Count;
+
+                return count;
+            }
+            catch 
+            {
+                return 0;
+            }
+        }
+
+        static JToken ChooseQuestionForMistakes(Update update)
+        {
+            long chatId = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
+
+            if (!usedQuestions.ContainsKey(chatId))
+            {
+                usedQuestions[chatId] = new List<string>();
+            }
+
+            JToken? question = default;
+            string mistakesPath = $@"../../../pddQuestions/mistakes/{chatId}.json";
+            string mistakes = System.IO.File.ReadAllText(mistakesPath);
+            JArray jsonArray = JArray.Parse(mistakes);
+            for (int i = 0; i < jsonArray.Count; i++)
+            {
+                if (!usedQuestions[chatId].Contains(jsonArray[i].ToString()))
+                {
+                    question = jsonArray[i];
+                    usedQuestions[chatId].Add(question.ToString());
+                    break;
+                }
+            }
 
             return question;
         }
@@ -186,7 +299,16 @@ namespace TelegramPDDBot
 
             return System.IO.File.OpenRead(imagePath);
         }
-           
+
+        static Stream GetImagePathForMistakes(JToken question)
+        {
+            string imagePath = question["ImagePath"].ToString();
+            imagePath = imagePath.Substring(1);
+            imagePath = $@"../../../pddQuestions/{imagePath}";
+
+            return System.IO.File.OpenRead(imagePath);
+        }
+
         static string ParseAnswers(JArray answers)
         {
             string allAnswers = "";
@@ -253,6 +375,7 @@ namespace TelegramPDDBot
                     category[update.CallbackQuery.Message.Chat.Id] = selectedCategory;
                     await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
                     bot.OnChangeCategory[update.CallbackQuery.Message.Chat.Id] -= ChangeCategory;
+                    isInMode.Remove(update.CallbackQuery.Message.Chat.Id);
                     await ShowMenu(client, update);
                 }
                 else
@@ -286,7 +409,12 @@ namespace TelegramPDDBot
                 await Console.Out.WriteLineAsync($"{usedQuestions.Count}");
 
                 // обработка кнопок
-                await CheckAnswerExam(client, update);
+                if (currentQuestion.ContainsKey(chatId))
+                {
+                    JArray answers = JArray.Parse(currentQuestion[chatId]["answers"].ToString());
+                    await CheckAnswerExam(client, update, currentQuestion[chatId], answers);
+                }
+
                 if (questionLimit.ContainsKey(chatId))
                 {
                     if (questionCount[chatId] == questionLimit[chatId])
@@ -303,7 +431,7 @@ namespace TelegramPDDBot
                     {
                         //парсинг случайный выбор вопросов из json-формата 
                         JToken question = ChooseQuestion(update);
-
+                        currentQuestion[chatId] = question;
                         // получение пути к изображению
                         await using Stream image = GetImagePath(question);
 
@@ -380,7 +508,7 @@ namespace TelegramPDDBot
                     if (currentQuestion.ContainsKey(chatId)) 
                     {
                         JArray answers = JArray.Parse(currentQuestion[chatId]["answers"].ToString());
-                        await CheckAnswerTickets(client, update, currentQuestion[chatId], GetImagePath(currentQuestion[chatId]), ParseAnswers(answers));
+                        await CheckAnswerQuestion(client, update, currentQuestion[chatId], GetImagePath(currentQuestion[chatId]), answers, ParseAnswers(answers), false);
                     }                           
                     
                     if (questionLimit.ContainsKey(chatId))
@@ -403,7 +531,7 @@ namespace TelegramPDDBot
                         }
                         else
                         {
-                            string isPassed = mistakesCount[chatId] <= 2 ? "пройденным✅" : "не пройденным❌";
+                            string isPassed = mistakesCount[chatId] <= 2 ? "пройденным✅" : "непройденным❌";
                             await client.SendTextMessageAsync(chatId, text: $"Билет считается {isPassed}. Количество правильных ответов = {rightCount[chatId]}/{questionLimit[chatId]}.");
                             await EndMode(client, update, bot.OnStartTickets);
                         }                       
@@ -412,10 +540,69 @@ namespace TelegramPDDBot
             }
         }
 
+
+        static async void StartMistakes(ITelegramBotClient client, Update update)
+        {
+            long chatId = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message.Chat.Id : update.Message.Chat.Id;
+            //включение режима
+            if (update.Type == UpdateType.CallbackQuery || !questionCount.ContainsKey(chatId))
+            {
+                if (!questionCount.ContainsKey(chatId))
+                {
+                    rightCount[chatId] = 0;
+                    mistakesCount[chatId] = 0;
+                    questionCount[chatId] = 0;
+                    questionLimit[chatId] = CountMistakeQuestions(update);
+                    isExtended[chatId] = false;
+                    await client.DeleteMessageAsync(chatId, update.CallbackQuery.Message.MessageId);
+                }
+
+                await Console.Out.WriteLineAsync($"{usedQuestions.Count}");
+
+                // обработка кнопок
+                if (currentQuestion.ContainsKey(chatId))
+                {
+                    JArray answers = JArray.Parse(currentQuestion[chatId]["Answers"].ToString());
+                    await CheckAnswerQuestion(client, update, currentQuestion[chatId], GetImagePathForMistakes(currentQuestion[chatId]), answers, ParseAnswers(answers).ToLower(), true);
+                }
+
+                if (questionLimit.ContainsKey(chatId))
+                {
+                    if (questionCount[chatId] != questionLimit[chatId])
+                    {
+                        //парсинг вопроса из json-формата 
+                        JToken question = ChooseQuestionForMistakes(update);
+                        currentQuestion[chatId] = question;
+                        // получение пути к изображению
+                        await using Stream image = GetImagePathForMistakes(question);
+                        //парсинг ответов 
+                        JArray answers = JArray.Parse(question["Answers"].ToString());
+                        string allAnswers = ParseAnswers(answers);
+                        //вывод вопросов
+                        await client.SendPhotoAsync(chatId, photo: InputFile.FromStream(image, "question.jpg"),
+                            caption: $"{questionCount[chatId] + 1}) {question["GivenQuestion"]}\n\n{allAnswers}", replyMarkup: GetQuestionButtons(answers));
+
+                        questionCount[chatId]++;
+                    }
+                    else
+                    {
+                        await client.SendTextMessageAsync(chatId, text: "Ошибки закончились.");
+                        await EndMode(client, update, bot.OnStartMistakes);
+                    }
+                }
+            }
+
+        }
+
+
         private static async void OnMessage(ITelegramBotClient client, Update update) //обработчик события
         {
-            var message = update.Message; 
-            if (message?.Text == "/start") //вывод меню
+            var message = update.Type == UpdateType.CallbackQuery ? update.CallbackQuery.Message : update.Message; ;
+            if (!isInMode.ContainsKey(message.Chat.Id)) 
+            {
+                isInMode[message.Chat.Id] = false;
+            }
+            if (message?.Text == "/start" && !isInMode[message.Chat.Id]) //вывод меню
             {
                 //await using Stream logo = System.IO.File.OpenRead(@"../../../pddQuestions/images/logo.jpg");
                 //await client.SendPhotoAsync(message.Chat.Id, photo: InputFile.FromStream(logo, "logo.jpg"), caption: $"{message.Chat.FirstName}, Добро пожаловать в бота для изучения ПДД." +
@@ -428,12 +615,17 @@ namespace TelegramPDDBot
             switch (update.Type) //обработка кнопок
             {
                 case UpdateType.CallbackQuery:
+                    if (!category.ContainsKey(message.Chat.Id)) 
+                    {
+                        category[message.Chat.Id] = startCategory;
+                    }
                     switch (update.CallbackQuery?.Data) 
                     {
                         case "Exam":
                             await Console.Out.WriteLineAsync("Режим: экзамен");
                             bot.OnStartExam[update.CallbackQuery.Message.Chat.Id] = default;
                             bot.OnStartExam[update.CallbackQuery.Message.Chat.Id] += StartExam;
+                            isInMode[update.CallbackQuery.Message.Chat.Id] = true; 
                             break;
                         case "Tickets":
                             await Console.Out.WriteLineAsync("Режим: билеты");
@@ -444,14 +636,19 @@ namespace TelegramPDDBot
 
                             bot.OnStartTickets[update.CallbackQuery.Message.Chat.Id] = default;
                             bot.OnStartTickets[update.CallbackQuery.Message.Chat.Id] += StartTickets;
+                            isInMode[update.CallbackQuery.Message.Chat.Id] = true;
                             break;
                         case "Mistakes":
                             await Console.Out.WriteLineAsync("Режим: ошибки");
+                            bot.OnStartMistakes[update.CallbackQuery.Message.Chat.Id] = default;
+                            bot.OnStartMistakes[update.CallbackQuery.Message.Chat.Id] += StartMistakes;
+                            isInMode[update.CallbackQuery.Message.Chat.Id] = true;
                             break;
                         case "Category":
                             await Console.Out.WriteLineAsync("Режим: категории");
                             bot.OnChangeCategory[update.CallbackQuery.Message.Chat.Id] = default;
                             bot.OnChangeCategory[update.CallbackQuery.Message.Chat.Id] += ChangeCategory;
+                            isInMode[update.CallbackQuery.Message.Chat.Id] = true;
                             break;
                         case "Help":
                             await Console.Out.WriteLineAsync("Режим: помощь");

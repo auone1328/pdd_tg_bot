@@ -175,7 +175,7 @@ namespace TelegramPDDBot
                             try
                             {
                                 await client.SendPhotoAsync(update.CallbackQuery.Message.Chat.Id, photo: InputFile.FromStream(image, "question.jpg"),
-                                caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n/{question[correctAnswer]}\n{question[answerTip]}");
+                                caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question[correctAnswer]}\n{question[answerTip]}");
                             }   
                             catch 
                             {
@@ -184,7 +184,7 @@ namespace TelegramPDDBot
                                 caption: $"{question[questionText]}\n{allAnswers}\n{questionCount[update.CallbackQuery.Message.Chat.Id]}) ❌Ответ неверный.\n{question[correctAnswer]}");
                             }
 
-                    if (!isMistakes)
+                             if (!isMistakes)
                             {
                                 AddQuestionToMistakes(update, question, answers);
                             }

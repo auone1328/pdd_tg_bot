@@ -192,7 +192,14 @@ namespace TelegramPDDBot
                         case "Back":
                             await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
                             await client.SendTextMessageAsync(update.CallbackQuery.Message.Chat.Id, "Работа режима завершена. Выход в меню...");
-                            await EndMode(client, update, bot.OnStartTickets);
+                            if (isMistakes)
+                            {
+                                await EndMode(client, update, bot.OnStartMistakes);
+                            }
+                            else 
+                            {
+                                await EndMode(client, update, bot.OnStartTickets);
+                            }
                             break;
                         default:
                             break;

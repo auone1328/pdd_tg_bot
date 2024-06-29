@@ -109,7 +109,7 @@ namespace TelegramPDDBot
 
             //InlineKeyboardMarkup menuButton = new InlineKeyboardMarkup(
             //    InlineKeyboardButton.WithCallbackData(text: "Вернуться в меню", callbackData: "BackToMenu"));
-
+            await client.DeleteMessageAsync(update.CallbackQuery.Message.Chat.Id, update.CallbackQuery.Message.MessageId);
             var filePath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, @"../../../userGuide/ПДД-бот руководство пользователя.pdf");
 
             using (var fileStream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read))
@@ -123,8 +123,9 @@ namespace TelegramPDDBot
 
                 sendDocumentTask.Wait(); // Ожидаем выполнения асинхронной задачи синхронно
                 await ShowMenu(client, update);
-
             }
+
+            bot.OnUserGuide.Remove(update.CallbackQuery.Message.Chat.Id);
         }
 
         static void EditMistakes(Update update, JToken question)
